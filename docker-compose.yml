@@ -14,7 +14,7 @@ services:
       - PYTHONUNBUFFERED=1
       - DEBUG=${DEBUG:-False}
     volumes:
-      - ./data:/app/data
+      - servertracker_data:/app/data
     networks:
       - servertracker-network
     restart: unless-stopped
@@ -23,7 +23,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 10s
 
   # 前端服务 (Nginx + 静态文件)
   frontend:
@@ -78,5 +78,4 @@ networks:
 # 数据卷
 volumes:
   # postgres_data:  # 如果启用PostgreSQL
-  data:
-    driver: local
+  servertracker_data:

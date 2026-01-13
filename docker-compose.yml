@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # 后端API服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: servertracker-backend
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///app/data/monitor.db}
+      - PYTHONUNBUFFERED=1
+      - DEBUG=${DEBUG:-False}
+    volumes:
+      - ./data:/app/data
+    networks:
+      - servertracker-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 前端服务 (Nginx + 静态文件)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: servertracker-frontend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - servertracker-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis缓存 (可选)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: servertracker-redis
+  #   ports:
+  #     - "6379:6379"
+  #   networks:
+  #     - servertracker-network
+  #   restart: unless-stopped
+
+  # PostgreSQL数据库 (可选，用于生产环境)
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: servertracker-postgres
+  #   environment:
+  #     POSTGRES_DB: servertracker
+  #     POSTGRES_USER: ${POSTGRES_USER:-admin}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password123}
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #     - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+  #   networks:
+  #     - servertracker-network
+  #   restart: unless-stopped
+
+# 网络配置
+networks:
+  servertracker-network:
+    driver: bridge
+
+# 数据卷
+volumes:
+  # postgres_data:  # 如果启用PostgreSQL
+  data:
+    driver: local

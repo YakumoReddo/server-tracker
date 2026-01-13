@@ -1,0 +1,6 @@
+{
+  "server_url": "http://localhost:8000",
+  "probe_key": "your-probe-key-here",
+  "interval": 60,
+  "ports": [80, 443, 3306, 6379]
+}

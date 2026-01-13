@@ -7,8 +7,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: servertracker-backend
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
+    # 不在宿主机上发布端口，仅向同一网络的其他容器暴露
+    expose:
+      - "8000"
     environment:
       - DATABASE_URL=${DATABASE_URL:-sqlite:///app/data/monitor.db}
       - PYTHONUNBUFFERED=1

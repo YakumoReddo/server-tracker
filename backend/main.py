@@ -66,6 +66,50 @@ def get_db():
     finally:
         db.close()
 
+@app.get('/api/health')
+def health_check():
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "service": "ServerTracker API",
+        "version": "1.0.0"
+    }
+
+# 公开服务器数据接口（无需认证）
+@app.get('/api/public/servers')
+async def get_public_servers(db: Session = Depends(get_db)):
+    server_manager = ServerManager(db)
+    servers = await server_manager.get_servers()
+    return {"servers": servers}
+
+@app.get('/api/public/servers/{server_id}')
+async def get_public_server(server_id: int, db: Session = Depends(get_db)):
+    server_manager = ServerManager(db)
+    server = await server_manager.get_server(server_id)
+    if not server:
+        raise HTTPException(status_code=404, detail="Server not found")
+    return {"server": server}
+
+@app.get('/api/public/servers/{server_id}/metrics')
+async def get_public_metrics(server_id: int, hours: int = 24, db: Session = Depends(get_db)):
+    metric_collector = MetricCollector(db)
+    metrics = await metric_collector.get_recent_metrics(server_id, hours)
+    return {"metrics": metrics}
+
+@app.get('/api/public/servers/{server_id}/metrics/latest')
+async def get_public_latest_metrics(server_id: int, db: Session = Depends(get_db)):
+    metric_collector = MetricCollector(db)
+    metrics = await metric_collector.get_latest_metrics(server_id)
+    if not metrics:
+        raise HTTPException(status_code=404, detail="No metrics found")
+    return {"metrics": metrics}
+
+@app.get('/api/public/alerts/active')
+async def get_public_active_alerts(db: Session = Depends(get_db)):
+    alert_manager = AlertManager(db)
+    alerts = await alert_manager.get_active_alerts()
+    return {"alerts": alerts}
+
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
     """获取当前用户"""
     try:
@@ -86,7 +130,7 @@ def log_action(db: Session, user_id: Optional[int], action: str, resource: str,
                resource_id: Optional[int] = None, details: Optional[str] = None,
                request: Optional[Request] = None):
     """记录审计日志"""
-    if user_id is not None and hasattr(user_id, 'id'):
+    if isinstance(user_id, AdminUser):
         user_id = user_id.id
     
     audit_log = AuditLog(
@@ -95,7 +139,7 @@ def log_action(db: Session, user_id: Optional[int], action: str, resource: str,
         resource=resource,
         resource_id=resource_id,
         details=details,
-        ip_address=request.client.host if request and request.client else None,
+        ip_address=request.client.host if request and hasattr(request, 'client') else None,
         user_agent=request.headers.get("User-Agent") if request else None
     )
     db.add(audit_log)
@@ -119,7 +163,7 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db), request: Requ
     user.last_login = datetime.utcnow()
     db.commit()
     
-    log_action(db, user, "login_success", "auth", details="User logged in successfully", request=request)
+    log_action(db, user.id, "login_success", "auth", details="User logged in successfully", request=request)
     
     return {
         "access_token": access_token,
@@ -158,6 +202,12 @@ def get_current_user_info(current_user: AdminUser = Depends(get_current_user)):
         "email": current_user.email,
         "is_superuser": current_user.is_superuser
     }
+
+@app.get('/api/servers')
+async def get_servers_public(db: Session = Depends(get_db)):
+    server_manager = ServerManager(db)
+    servers = await server_manager.get_servers()
+    return {"servers": servers}
 
 @app.get('/api/servers')
 async def get_servers(db: Session = Depends(get_db), current_user: AdminUser = Depends(get_current_user)):
@@ -212,10 +262,17 @@ async def get_latest_metrics(server_id: int, db: Session = Depends(get_db),
     return {"metrics": metrics}
 
 @app.get('/api/servers/{server_id}/metrics')
+async def get_metrics_public(server_id: int, hours: int = 24, db: Session = Depends(get_db)):
+    metric_collector = MetricCollector(db)
+    metrics = await metric_collector.get_recent_metrics(server_id, hours)
+    return {"metrics": metrics}
+
+@app.get('/api/servers/{server_id}/metrics')
 async def get_metrics(server_id: int, hours: int = 24, db: Session = Depends(get_db),
                      current_user: AdminUser = Depends(get_current_user)):
     metric_collector = MetricCollector(db)
     metrics = await metric_collector.get_recent_metrics(server_id, hours)
+    log_action(db, current_user.id, "view", "metrics", server_id, f"Viewed metrics for {hours} hours")
     return {"metrics": metrics}
 
 @app.post('/api/servers/{server_id}/metrics')

@@ -162,7 +162,7 @@ export default {
     const wsConnected = ref(false)
     let ws = null
 
-    const API_BASE = 'http://localhost:8000'
+    const API_BASE = import.meta.env.VITE_PUBLISH_URL || 'http://localhost:8000'
 
     const fetchCurrentUser = async () => {
       try {
@@ -222,8 +222,31 @@ export default {
       }
     }
 
+    const verifyApiConnection = async () => {
+      try {
+        console.log(`🔍 检查后端连接: ${API_BASE}`)
+        const response = await fetch(`${API_BASE}/api/health`)
+        if (response.ok) {
+          console.log(`✅ 后端连接正常: ${API_BASE}`)
+          return true
+        } else {
+          console.error(`❌ 后端连接异常: ${response.status}`)
+          return false
+        }
+      } catch (error) {
+        console.error(`❌ 无法连接到后端 ${API_BASE}:`, error.message)
+        return false
+      }
+    }
+
     const handleLogin = async (credentials) => {
       try {
+        // 先验证API连接
+        const isConnected = await verifyApiConnection()
+        if (!isConnected) {
+          throw new Error(`无法连接到后端服务 ${API_BASE}，请检查服务是否启动`)
+        }
+
         const response = await fetch(`${API_BASE}/api/auth/login`, {
           method: 'POST',
           headers: {
@@ -239,7 +262,7 @@ export default {
           await fetchCurrentUser()
           await Promise.all([fetchServers(), fetchProbes()])
         } else {
-          throw new Error('Login failed')
+          throw new Error('登录失败，请检查用户名和密码')
         }
       } catch (error) {
         console.error('Login error:', error)
@@ -400,6 +423,14 @@ export default {
     }
 
     onMounted(async () => {
+      // 检查API连接状态
+      const isConnected = await verifyApiConnection()
+      
+      if (!isConnected) {
+        console.warn(`⚠️ 无法连接到后端 ${API_BASE}，请确保后端服务正在运行`)
+        return
+      }
+
       await fetchCurrentUser()
       
       if (isAuthenticated.value) {

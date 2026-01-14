@@ -4,18 +4,29 @@ import json
 import requests
 import psutil
 import socket
+import hmac
+import hashlib
 from datetime import datetime
 import logging
+from cryptography import x509
+from cryptography.hazmat.primitives import serialization
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class ServerProbe:
+class SecureServerProbe:
     def __init__(self, config_file: str = "probe_config.json"):
         self.config = self.load_config(config_file)
         self.server_url = self.config.get("server_url", "http://localhost:8000")
         self.probe_key = self.config.get("probe_key")
+        self.probe_id = self.config.get("probe_id")
         self.interval = self.config.get("interval", 60)
+        
+        # 加载证书和私钥
+        self.certificate_file = self.config.get("certificate_file", "probe.crt")
+        self.private_key_file = self.config.get("private_key_file", "private_key.pem")
+        
+        self.private_key = self.load_private_key()
         
         if not self.probe_key:
             raise ValueError("probe_key is required")
@@ -28,12 +39,29 @@ class ServerProbe:
             default_config = {
                 "server_url": "http://localhost:8000",
                 "probe_key": "",
+                "probe_id": None,
                 "interval": 60,
-                "ports": []
+                "ports": [],
+                "certificate_file": "probe.crt",
+                "private_key_file": "private_key.pem"
             }
             with open(config_file, 'w') as f:
                 json.dump(default_config, f, indent=2)
             return default_config
+    
+    def load_private_key(self) -> str:
+        if os.path.exists(self.private_key_file):
+            with open(self.private_key_file, 'r') as f:
+                return f.read()
+        else:
+            raise FileNotFoundError(f"Private key file not found: {self.private_key_file}")
+    
+    def load_certificate(self) -> str:
+        if os.path.exists(self.certificate_file):
+            with open(self.certificate_file, 'r') as f:
+                return f.read()
+        else:
+            raise FileNotFoundError(f"Certificate file not found: {self.certificate_file}")
     
     def collect_system_metrics(self) -> dict:
         try:
@@ -45,7 +73,9 @@ class ServerProbe:
                 "cpu_usage": round(cpu_percent, 2),
                 "memory_usage": round(memory.percent, 2),
                 "disk_usage": round((disk_usage.used / disk_usage.total) * 100, 2),
-                "uptime": int(time.time() - psutil.boot_time())
+                "uptime": int(time.time() - psutil.boot_time()),
+                "probe_id": self.probe_id,
+                "probe_key": self.probe_key
             }
         except Exception as e:
             logger.error(f"Error collecting metrics: {e}")
@@ -64,6 +94,21 @@ class ServerProbe:
                 port_status[str(port)] = False
         return port_status
     
+    def sign_data(self, data: dict) -> dict:
+        sorted_data = json.dumps(data, sort_keys=True)
+        
+        signature = hmac.new(
+            self.private_key.encode(),
+            sorted_data.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        return {
+            "data": data,
+            "signature": signature,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
     def collect_all_metrics(self) -> dict:
         metrics = self.collect_system_metrics()
         
@@ -76,8 +121,21 @@ class ServerProbe:
     
     def send_metrics(self, metrics: dict) -> bool:
         try:
+            signed_data = self.sign_data(metrics)
+            certificate = self.load_certificate()
+            
             url = f"{self.server_url}/api/probe/{self.probe_key}/metrics"
-            response = requests.post(url, json=metrics, timeout=10)
+            headers = {
+                'X-Probe-Certificate': certificate,
+                'Content-Type': 'application/json'
+            }
+            
+            payload = {
+                'probe_key': self.probe_key,
+                'signed_data': signed_data
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=10)
             
             if response.status_code == 200:
                 logger.info("Metrics sent successfully")
@@ -90,7 +148,7 @@ class ServerProbe:
             return False
     
     def run(self):
-        logger.info(f"Starting probe with interval {self.interval}s")
+        logger.info(f"Starting secure probe with interval {self.interval}s")
         
         while True:
             try:
@@ -110,12 +168,16 @@ def main():
     args = parser.parse_args()
     
     try:
-        probe = ServerProbe(args.config)
+        probe = SecureServerProbe(args.config)
         
         if args.test:
             print("Collecting metrics...")
             metrics = probe.collect_all_metrics()
             print(json.dumps(metrics, indent=2))
+            
+            print("\nSigning data...")
+            signed = probe.sign_data(metrics)
+            print(json.dumps(signed, indent=2))
         else:
             probe.run()
             

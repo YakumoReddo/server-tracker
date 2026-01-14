@@ -1,133 +1,203 @@
 <template>
   <div id="app">
-    <header class="header">
-      <h1 class="title">服务器监测</h1>
-      <div class="connection-status">
-        <span :class="['status-indicator', wsConnected ? 'connected' : 'disconnected']"></span>
-        <span class="status-text">{{ wsConnected ? '已连接' : '未连接' }}</span>
-      </div>
-    </header>
+    <div v-if="!isAuthenticated" class="login-container">
+      <LoginForm @login="handleLogin" />
+    </div>
+    
+    <div v-else class="main-container">
+      <header class="header">
+        <h1 class="title">ServerTracker 管理面板</h1>
+        <div class="header-actions">
+          <span class="user-info">欢迎, {{ currentUser?.username }}</span>
+          <button @click="logout" class="logout-btn">退出</button>
+        </div>
+      </header>
 
-    <main class="main-content">
-      <div v-if="loading" class="loading">
-        <div class="spinner"></div>
-        <p>加载中...</p>
-      </div>
-
-      <div v-else class="content">
-        <div class="server-list">
-          <h2>服务器列表</h2>
-          <div class="server-grid">
-            <div 
-              v-for="server in servers" 
-              :key="server.id"
-              :class="['server-card', { active: server.is_active, selected: selectedServer?.id === server.id }]"
-              @click="selectServer(server)"
+      <main class="main-content">
+        <div class="tab-container">
+          <div class="tabs">
+            <button 
+              :class="['tab', { active: activeTab === 'servers' }]"
+              @click="activeTab = 'servers'"
             >
-              <div class="server-header">
-                <h3>{{ server.name }}</h3>
-                <span :class="['status-badge', server.is_active ? 'online' : 'offline']">
-                  {{ server.is_active ? '在线' : '离线' }}
-                </span>
-              </div>
-              <p class="server-host">{{ server.host }}:{{ server.port }}</p>
-              <p v-if="server.last_seen" class="last-seen">
-                最后活跃: {{ formatTime(server.last_seen) }}
-              </p>
-              <div v-if="getLatestMetrics(server.id)" class="quick-metrics">
-                <div class="metric">
-                  <span>CPU:</span>
-                  <span :class="getCpuStatus(getLatestMetrics(server.id).cpu_usage)">
-                    {{ getLatestMetrics(server.id).cpu_usage?.toFixed(1) || 0 }}%
-                  </span>
-                </div>
-                <div class="metric">
-                  <span>内存:</span>
-                  <span :class="getMemoryStatus(getLatestMetrics(server.id).memory_usage)">
-                    {{ getLatestMetrics(server.id).memory_usage?.toFixed(1) || 0 }}%
-                  </span>
+              服务器监控
+            </button>
+            <button 
+              :class="['tab', { active: activeTab === 'probes' }]"
+              @click="activeTab = 'probes'"
+            >
+              探针管理
+            </button>
+          </div>
+
+          <!-- 服务器监控页面 -->
+          <div v-if="activeTab === 'servers'" class="tab-content">
+            <div class="server-list">
+              <h2>服务器列表</h2>
+              <div class="server-grid">
+                <div 
+                  v-for="server in servers" 
+                  :key="server.id"
+                  :class="['server-card', { active: server.is_active, selected: selectedServer?.id === server.id }]"
+                  @click="selectServer(server)"
+                >
+                  <div class="server-header">
+                    <h3>{{ server.name }}</h3>
+                    <span :class="['status-badge', server.is_active ? 'online' : 'offline']">
+                      {{ server.is_active ? '在线' : '离线' }}
+                    </span>
+                  </div>
+                  <p class="server-host">{{ server.host }}:{{ server.port }}</p>
+                  <p v-if="server.last_seen" class="last-seen">
+                    最后活跃: {{ formatTime(server.last_seen) }}
+                  </p>
+                  <div v-if="getLatestMetrics(server.id)" class="quick-metrics">
+                    <div class="metric">
+                      <span>CPU:</span>
+                      <span :class="getCpuStatus(getLatestMetrics(server.id).cpu_usage)">
+                        {{ getLatestMetrics(server.id).cpu_usage?.toFixed(1) || 0 }}%
+                      </span>
+                    </div>
+                    <div class="metric">
+                      <span>内存:</span>
+                      <span :class="getMemoryStatus(getLatestMetrics(server.id).memory_usage)">
+                        {{ getLatestMetrics(server.id).memory_usage?.toFixed(1) || 0 }}%
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
+
+            <div v-if="selectedServer" class="server-details">
+              <h2>{{ selectedServer.name }} - 详细监控</h2>
+              
+              <div class="metrics-overview">
+                <div class="metric-card">
+                  <h3>CPU 使用率</h3>
+                  <div class="progress-bar">
+                    <div 
+                      class="progress-fill cpu" 
+                      :style="{ width: (currentMetrics?.cpu_usage || 0) + '%' }"
+                    ></div>
+                  </div>
+                  <span class="metric-value">{{ currentMetrics?.cpu_usage?.toFixed(1) || 0 }}%</span>
+                </div>
+
+                <div class="metric-card">
+                  <h3>内存使用率</h3>
+                  <div class="progress-bar">
+                    <div 
+                      class="progress-fill memory" 
+                      :style="{ width: (currentMetrics?.memory_usage || 0) + '%' }"
+                    ></div>
+                  </div>
+                  <span class="metric-value">{{ currentMetrics?.memory_usage?.toFixed(1) || 0 }}%</span>
+                </div>
+
+                <div class="metric-card">
+                  <h3>磁盘使用率</h3>
+                  <div class="progress-bar">
+                    <div 
+                      class="progress-fill disk" 
+                      :style="{ width: (currentMetrics?.disk_usage || 0) + '%' }"
+                    ></div>
+                  </div>
+                  <span class="metric-value">{{ currentMetrics?.disk_usage?.toFixed(1) || 0 }}%</span>
+                </div>
+              </div>
+
+              <div class="port-status">
+                <h3>端口状态</h3>
+                <div class="port-grid">
+                  <div 
+                    v-for="(status, port) in getPortStatus(selectedServer.id)" 
+                    :key="port"
+                    :class="['port-item', status ? 'open' : 'closed']"
+                  >
+                    <span class="port-number">{{ port }}</span>
+                    <span class="port-state">{{ status ? '开放' : '关闭' }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 探针管理页面 -->
+          <div v-if="activeTab === 'probes'" class="tab-content">
+            <ProbeManagement 
+              :probes="probes" 
+              @create-probe="handleCreateProbe"
+              @update-probe="handleUpdateProbe"
+              @delete-probe="handleDeleteProbe"
+              @download-probe="handleDownloadProbe"
+            />
           </div>
         </div>
-
-        <div v-if="selectedServer" class="server-details">
-          <h2>{{ selectedServer.name }} - 详细监控</h2>
-          
-          <div class="metrics-overview">
-            <div class="metric-card">
-              <h3>CPU 使用率</h3>
-              <div class="progress-bar">
-                <div 
-                  class="progress-fill cpu" 
-                  :style="{ width: (currentMetrics?.cpu_usage || 0) + '%' }"
-                ></div>
-              </div>
-              <span class="metric-value">{{ currentMetrics?.cpu_usage?.toFixed(1) || 0 }}%</span>
-            </div>
-
-            <div class="metric-card">
-              <h3>内存使用率</h3>
-              <div class="progress-bar">
-                <div 
-                  class="progress-fill memory" 
-                  :style="{ width: (currentMetrics?.memory_usage || 0) + '%' }"
-                ></div>
-              </div>
-              <span class="metric-value">{{ currentMetrics?.memory_usage?.toFixed(1) || 0 }}%</span>
-            </div>
-
-            <div class="metric-card">
-              <h3>磁盘使用率</h3>
-              <div class="progress-bar">
-                <div 
-                  class="progress-fill disk" 
-                  :style="{ width: (currentMetrics?.disk_usage || 0) + '%' }"
-                ></div>
-              </div>
-              <span class="metric-value">{{ currentMetrics?.disk_usage?.toFixed(1) || 0 }}%</span>
-            </div>
-          </div>
-
-          <div class="port-status">
-            <h3>端口状态</h3>
-            <div class="port-grid">
-              <div 
-                v-for="(status, port) in getPortStatus(selectedServer.id)" 
-                :key="port"
-                :class="['port-item', status ? 'open' : 'closed']"
-              >
-                <span class="port-number">{{ port }}</span>
-                <span class="port-state">{{ status ? '开放' : '关闭' }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </main>
+      </main>
+    </div>
   </div>
 </template>
 
 <script>
 import { ref, onMounted, onUnmounted } from 'vue'
+import LoginForm from './components/LoginForm.vue'
+import ProbeManagement from './components/ProbeManagement.vue'
 
 export default {
   name: 'App',
+  components: {
+    LoginForm,
+    ProbeManagement
+  },
   setup() {
+    const isAuthenticated = ref(false)
+    const currentUser = ref(null)
+    const activeTab = ref('servers')
     const servers = ref([])
     const selectedServer = ref(null)
     const currentMetrics = ref(null)
     const metrics = ref({})
-    const loading = ref(true)
+    const probes = ref([])
     const wsConnected = ref(false)
     let ws = null
 
     const API_BASE = 'http://localhost:8000'
 
+    const fetchCurrentUser = async () => {
+      try {
+        const token = localStorage.getItem('access_token')
+        if (!token) return
+        
+        const response = await fetch(`${API_BASE}/api/auth/me`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        
+        if (response.ok) {
+          const userData = await response.json()
+          currentUser.value = userData
+          isAuthenticated.value = true
+        } else {
+          localStorage.removeItem('access_token')
+          localStorage.removeItem('refresh_token')
+        }
+      } catch (error) {
+        console.error('Failed to fetch current user:', error)
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+      }
+    }
+
     const fetchServers = async () => {
       try {
-        const response = await fetch(`${API_BASE}/api/servers`)
+        const token = localStorage.getItem('access_token')
+        const response = await fetch(`${API_BASE}/api/servers`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
         const data = await response.json()
         servers.value = data.servers || []
       } catch (error) {
@@ -135,9 +205,68 @@ export default {
       }
     }
 
+    const fetchProbes = async () => {
+      try {
+        const token = localStorage.getItem('access_token')
+        const response = await fetch(`${API_BASE}/api/admin/probes`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        if (response.ok) {
+          const data = await response.json()
+          probes.value = data
+        }
+      } catch (error) {
+        console.error('Failed to fetch probes:', error)
+      }
+    }
+
+    const handleLogin = async (credentials) => {
+      try {
+        const response = await fetch(`${API_BASE}/api/auth/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(credentials)
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          localStorage.setItem('access_token', data.access_token)
+          localStorage.setItem('refresh_token', data.refresh_token)
+          await fetchCurrentUser()
+          await Promise.all([fetchServers(), fetchProbes()])
+        } else {
+          throw new Error('Login failed')
+        }
+      } catch (error) {
+        console.error('Login error:', error)
+        throw error
+      }
+    }
+
+    const logout = () => {
+      localStorage.removeItem('access_token')
+      localStorage.removeItem('refresh_token')
+      isAuthenticated.value = false
+      currentUser.value = null
+      servers.value = []
+      probes.value = []
+      if (ws) {
+        ws.close()
+      }
+    }
+
     const fetchMetrics = async (serverId) => {
       try {
-        const response = await fetch(`${API_BASE}/api/servers/${serverId}/metrics/latest`)
+        const token = localStorage.getItem('access_token')
+        const response = await fetch(`${API_BASE}/api/servers/${serverId}/metrics/latest`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
         const data = await response.json()
         if (data.metrics) {
           metrics.value[serverId] = data.metrics
@@ -150,33 +279,86 @@ export default {
       }
     }
 
-    const connectWebSocket = () => {
+    const handleCreateProbe = async (probeData) => {
       try {
-        ws = new WebSocket('ws://localhost:8000/ws')
+        const token = localStorage.getItem('access_token')
+        const response = await fetch(`${API_BASE}/api/admin/probes`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(probeData)
+        })
         
-        ws.onopen = () => {
-          wsConnected.value = true
-          console.log('WebSocket connected')
-        }
-        
-        ws.onmessage = (event) => {
-          const data = JSON.parse(event.data)
-          if (data.type === 'metrics_update') {
-            fetchMetrics(data.server_id)
-          }
-        }
-        
-        ws.onclose = () => {
-          wsConnected.value = false
-          console.log('WebSocket disconnected')
-          setTimeout(connectWebSocket, 3000)
-        }
-        
-        ws.onerror = (error) => {
-          console.error('WebSocket error:', error)
+        if (response.ok) {
+          await fetchProbes()
         }
       } catch (error) {
-        console.error('Failed to connect WebSocket:', error)
+        console.error('Failed to create probe:', error)
+      }
+    }
+
+    const handleUpdateProbe = async (probeId, updateData) => {
+      try {
+        const token = localStorage.getItem('access_token')
+        const response = await fetch(`${API_BASE}/api/admin/probes/${probeId}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(updateData)
+        })
+        
+        if (response.ok) {
+          await fetchProbes()
+        }
+      } catch (error) {
+        console.error('Failed to update probe:', error)
+      }
+    }
+
+    const handleDeleteProbe = async (probeId) => {
+      try {
+        const token = localStorage.getItem('access_token')
+        const response = await fetch(`${API_BASE}/api/admin/probes/${probeId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        
+        if (response.ok) {
+          await fetchProbes()
+        }
+      } catch (error) {
+        console.error('Failed to delete probe:', error)
+      }
+    }
+
+    const handleDownloadProbe = async (probeId) => {
+      try {
+        const token = localStorage.getItem('access_token')
+        const response = await fetch(`${API_BASE}/api/admin/probes/${probeId}/package`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          // 触发下载
+          const downloadResponse = await fetch(`${API_BASE}${data.download_url}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          })
+          // 处理文件下载
+        }
+      } catch (error) {
+        console.error('Failed to download probe:', error)
       }
     }
 
@@ -218,39 +400,50 @@ export default {
     }
 
     onMounted(async () => {
-      await fetchServers()
-      loading.value = false
+      await fetchCurrentUser()
       
-      connectWebSocket()
-      
-      const interval = setInterval(() => {
-        servers.value.forEach(server => {
-          if (server.is_active) {
-            fetchMetrics(server.id)
+      if (isAuthenticated.value) {
+        await Promise.all([fetchServers(), fetchProbes()])
+        
+        const interval = setInterval(() => {
+          servers.value.forEach(server => {
+            if (server.is_active) {
+              fetchMetrics(server.id)
+            }
+          })
+        }, 30000)
+        
+        onUnmounted(() => {
+          clearInterval(interval)
+          if (ws) {
+            ws.close()
           }
         })
-      }, 30000)
-      
-      onUnmounted(() => {
-        clearInterval(interval)
-        if (ws) {
-          ws.close()
-        }
-      })
+      }
     })
 
     return {
+      isAuthenticated,
+      currentUser,
+      activeTab,
       servers,
       selectedServer,
       currentMetrics,
-      loading,
+      metrics,
+      probes,
       wsConnected,
+      handleLogin,
+      logout,
       selectServer,
       getLatestMetrics,
       getPortStatus,
       getCpuStatus,
       getMemoryStatus,
-      formatTime
+      formatTime,
+      handleCreateProbe,
+      handleUpdateProbe,
+      handleDeleteProbe,
+      handleDownloadProbe
     }
   }
 }
@@ -264,12 +457,24 @@ export default {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segue UI', Roboto, sans-serif;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   min-height: 100vh;
 }
 
 #app {
+  min-height: 100vh;
+}
+
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.main-container {
   min-height: 100vh;
 }
 
@@ -289,35 +494,29 @@ body {
   font-weight: 600;
 }
 
-.connection-status {
+.header-actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 1rem;
 }
 
-.status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.status-indicator.connected {
-  background: #4ade80;
-  animation: pulse 2s infinite;
-}
-
-.status-indicator.disconnected {
-  background: #ef4444;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.status-text {
-  font-size: 0.875rem;
+.user-info {
   color: #666;
+  font-size: 0.9rem;
+}
+
+.logout-btn {
+  padding: 0.5rem 1rem;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.logout-btn:hover {
+  background: #dc2626;
 }
 
 .main-content {
@@ -326,32 +525,45 @@ body {
   margin: 0 auto;
 }
 
-.loading {
+.tab-container {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.tabs {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 400px;
-  color: white;
+  border-bottom: 1px solid #e5e7eb;
 }
 
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid rgba(255, 255, 255, 0.3);
-  border-top: 4px solid white;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 1rem;
+.tab {
+  flex: 1;
+  padding: 1rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #666;
+  transition: all 0.3s ease;
 }
 
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+.tab:hover {
+  background: #f9fafb;
+  color: #333;
 }
 
-.server-list h2 {
-  color: white;
+.tab.active {
+  color: #3b82f6;
+  border-bottom: 2px solid #3b82f6;
+  background: #f0f9ff;
+}
+
+.tab-content {
+  padding: 1.5rem;
+}
+
+.server-list h2, .tab-content h2 {
+  color: #333;
   margin-bottom: 1rem;
   font-size: 1.25rem;
 }
@@ -364,8 +576,8 @@ body {
 }
 
 .server-card {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
   padding: 1rem;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -374,20 +586,16 @@ body {
 
 .server-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .server-card.selected {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
 }
 
 .server-card.active {
-  border-left: 4px solid #4ade80;
-}
-
-.server-card.inactive {
-  border-left: 4px solid #ef4444;
+  border-left: 4px solid #10b981;
 }
 
 .server-header {
@@ -468,14 +676,14 @@ body {
 }
 
 .server-details {
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
+  background: #f0f9ff;
+  border-radius: 8px;
   padding: 1.5rem;
   margin-top: 1rem;
 }
 
 .server-details h2 {
-  color: #333;
+  color: #1e40af;
   margin-bottom: 1.5rem;
   font-size: 1.25rem;
 }
@@ -488,13 +696,14 @@ body {
 }
 
 .metric-card {
-  background: #f8fafc;
+  background: white;
   border-radius: 8px;
   padding: 1rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .metric-card h3 {
-  color: #333;
+  color: #374151;
   margin-bottom: 1rem;
   font-size: 0.875rem;
   text-transform: uppercase;
@@ -502,7 +711,7 @@ body {
 }
 
 .progress-bar {
-  background: #e2e8f0;
+  background: #e5e7eb;
   border-radius: 10px;
   height: 8px;
   margin-bottom: 0.5rem;
@@ -516,7 +725,7 @@ body {
 }
 
 .progress-fill.cpu {
-  background: linear-gradient(90deg, #4ade80, #22c55e);
+  background: linear-gradient(90deg, #10b981, #059669);
 }
 
 .progress-fill.memory {
@@ -530,11 +739,11 @@ body {
 .metric-value {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #333;
+  color: #374151;
 }
 
 .port-status h3 {
-  color: #333;
+  color: #374151;
   margin-bottom: 1rem;
   font-size: 1rem;
 }
@@ -551,7 +760,7 @@ body {
   align-items: center;
   padding: 0.75rem;
   border-radius: 8px;
-  background: #f8fafc;
+  background: white;
 }
 
 .port-item.open {
@@ -566,7 +775,7 @@ body {
 
 .port-number {
   font-weight: 600;
-  color: #333;
+  color: #374151;
   margin-bottom: 0.25rem;
 }
 
@@ -601,10 +810,6 @@ body {
   
   .main-content {
     padding: 0.5rem;
-  }
-  
-  .server-details {
-    padding: 1rem;
   }
 }
 </style>

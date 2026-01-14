@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 COPY . .
 
 # 安装Python依赖（如果需要）
-# RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt
 
 # 暴露端口（如果探针需要网络接口）
 EXPOSE 8080
